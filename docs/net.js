@@ -6,7 +6,6 @@
   "use strict";
 
   const PREFIX = "damasjeff-";
-  const PROTOCOL = 1;
   const CONNECT_TIMEOUT_MS = 25000;
 
   function randomCode() {
@@ -27,14 +26,15 @@
   };
 
   /**
-   * handlers: onReady(code) [anfitrião], onConnected(), onMessage(msg),
-   *           onDisconnected(), onError(texto)
+   * Anfitrião (sala): onReady(code), onPeerOpen(conn), onPeerData(conn, msg),
+   *                   onPeerClose(conn), onError(texto)
+   * Convidado:        onConnected(), onMessage(msg), onDisconnected(), onError(texto)
    */
   class NetSession {
     constructor(handlers) {
       this.h = handlers;
       this.peer = null;
-      this.conn = null;
+      this.conn = null; // convidado: conexão com o anfitrião
       this.isHost = false;
       this.code = null;
       this.closed = false;
@@ -48,14 +48,23 @@
       this.peer = new Peer(PREFIX + this.code, { debug: 0 });
       this.peer.on("open", () => this.h.onReady(this.code));
       this.peer.on("connection", conn => {
-        if (this.conn && this.conn.open) {
-          // Já há um adversário: recusa o segundo.
-          conn.on("open", () => { conn.send({ t: "busy" }); setTimeout(() => conn.close(), 500); });
-          return;
-        }
-        this._attach(conn);
+        let gone = false;
+        const bye = () => { if (!gone && !this.closed) { gone = true; this.h.onPeerClose(conn); } };
+        conn.on("open", () => this.h.onPeerOpen(conn));
+        conn.on("data", msg => { if (msg && typeof msg === "object") this.h.onPeerData(conn, msg); });
+        conn.on("close", bye);
+        conn.on("error", bye);
       });
       this._watchPeer();
+    }
+
+    sendTo(conn, msg) {
+      if (conn && conn.open) conn.send(msg);
+    }
+
+    closeConn(conn) {
+      // Dá tempo da última mensagem (ex.: o motivo da recusa) chegar.
+      if (conn) setTimeout(() => conn.close(), 400);
     }
 
     join(code) {
@@ -136,5 +145,5 @@
     }
   }
 
-  root.DamasNet = { NetSession, PROTOCOL, randomCode };
+  root.DamasNet = { NetSession, randomCode };
 })(typeof self !== "undefined" ? self : globalThis);

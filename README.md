@@ -15,8 +15,10 @@ Jogo de damas brasileiras, escrito do zero. Duas versões com as mesmas regras e
 - Dois jogadores no mesmo aparelho.
 - Voltar e avançar jogadas, salvar/abrir jogos (10 posições), editar tabuleiro,
   records por nível (menor tempo de vitória).
-- **Web:** partida com um amigo por link (ex.: WhatsApp), PC x celular, via WebRTC (PeerJS).
-  Revanche com cores trocadas, desistência e reconexão pelo mesmo link.
+- **Web:** sala online por link (ex.: WhatsApp), PC x celular, via WebRTC (PeerJS).
+  Várias pessoas no mesmo link: dois jogam, os demais ficam na fila assistindo; quem ganha fica.
+  Cada aparelho tem uma chave própria: quem cai tem 60 s para voltar ao mesmo lugar, e
+  outra pessoa com o link não pega a vaga. A sala vive no navegador de quem a criou.
 - **Windows:** partida em rede local / internet por IP (porta 5577).
 
 Dados locais: na web ficam no navegador (`localStorage`); no Windows, em `%APPDATA%\DamasJeff`.
@@ -39,3 +41,4 @@ python -m http.server 8765 --directory docs      # abrir http://127.0.0.1:8765/
 ```
 
 `docs/engine.js` e `docs/ai.js` são traduções fiéis de `damas/engine.py` e `damas/ai.py`.
+A lógica da sala (`docs/room.js`) é testada com `node tests/room.test.js`.

@@ -35,7 +35,7 @@
 
       <div id="play-box" class="buttons">
         <button id="btn-new" class="primary">Novo jogo</button>
-        <button id="btn-invite" class="whats">Jogar com amigo (link)</button>
+        <button id="btn-invite" class="whats">Sala online (link)</button>
         <div class="nav">
           <button id="btn-back">◀ Voltar</button>
           <button id="btn-fwd">Avançar ▶</button>
@@ -46,11 +46,19 @@
           <button id="btn-edit">Editar tabuleiro</button>
           <button id="btn-records">Records</button>
         </div>
-        <div id="online-box" class="grid2" hidden>
-          <button id="btn-rematch">Revanche</button>
-          <button id="btn-resign">Desistir</button>
-          <button id="btn-share" class="whats wide">Reenviar convite</button>
-        </div>
+        <section id="room-box" class="room" hidden aria-label="Sala">
+          <h2>Mesa</h2>
+          <p class="seat"><span class="mini w"></span><span id="room-white"></span></p>
+          <p class="seat"><span class="mini b"></span><span id="room-black"></span></p>
+          <h2>Fila de espera <small>(quem ganha fica)</small></h2>
+          <ol id="room-queue"></ol>
+          <p id="room-queue-empty" class="hint">Ninguém esperando.</p>
+          <div class="grid2">
+            <button id="btn-resign">Desistir</button>
+            <button id="btn-rename">Trocar meu nome</button>
+            <button id="btn-share" class="whats wide">Convidar mais gente</button>
+          </div>
+        </section>
         <button id="btn-rules" class="link">Regras</button>
       </div>
 
@@ -84,7 +92,7 @@
         <label><input type="radio" name="mode" value="cpu" checked> Contra o computador</label>
         <label><input type="radio" name="mode" value="tournament"> Torneio contra o computador</label>
         <label><input type="radio" name="mode" value="pvp"> Dois jogadores (mesmo aparelho)</label>
-        <label><input type="radio" name="mode" value="online"> Com um amigo pelo link (WhatsApp)</label>
+        <label><input type="radio" name="mode" value="online"> Sala online pelo link (WhatsApp) — com fila</label>
       </fieldset>
       <fieldset id="f-cpu">
         <legend>Opções</legend>
@@ -110,10 +118,10 @@
   <!-- Convite online -->
   <dialog id="dlg-invite">
     <form method="dialog">
-      <h2>Convide seu amigo</h2>
-      <p id="invite-state">Criando a partida…</p>
+      <h2>Convide para a sala</h2>
+      <p id="invite-state">Criando a sala…</p>
       <div id="invite-ready" hidden>
-        <p>Envie este link. Quando ele abrir, a partida começa sozinha.</p>
+        <p>Envie este link para uma ou várias pessoas. O primeiro a abrir joga com você; os demais entram na fila e assistem. Quem ganha fica.</p>
         <input id="invite-link" readonly>
         <div class="grid2">
           <a id="invite-whats" class="btn whats" target="_blank" rel="noopener">Enviar no WhatsApp</a>
@@ -165,6 +173,7 @@
   <script src="engine.js"></script>
   <script src="ai.js"></script>
   <script src="net.js"></script>
+  <script src="room.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

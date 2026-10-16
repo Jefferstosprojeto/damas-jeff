@@ -115,6 +115,14 @@ button.link { background: none; border: 0; color: var(--muted); text-decoration:
 select, input { border: 1px solid #c9b79e; padding: 8px; background: #fff; color: var(--ink); }
 
 .hint { color: var(--muted); font-size: .9rem; margin: 4px 0; }
+
+.room { border-top: 1px solid #e3d5c0; padding-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.room h2 { font-size: .95rem; margin: 4px 0 0; color: var(--muted); font-weight: 600; }
+.room h2 small { font-weight: 400; }
+.room .seat { display: flex; align-items: center; gap: 8px; margin: 0; font-weight: 600; }
+.room .seat .mini { width: 20px; height: 20px; flex: none; }
+.room ol { margin: 0; padding-left: 1.6em; }
+.room li.me { font-weight: 700; color: var(--accent); }
 .palette { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
 .palette label {
   display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px;
