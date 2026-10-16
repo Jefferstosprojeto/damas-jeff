@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#2a1a10">
+  <meta name="description" content="Damas Jeff — damas brasileiras contra o computador ou com um amigo pelo link.">
+  <meta property="og:title" content="Damas Jeff">
+  <meta property="og:description" content="Bora jogar damas? Toque para abrir o tabuleiro.">
+  <title>Damas Jeff</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%238b5a2b'/%3E%3Ccircle cx='32' cy='32' r='20' fill='%23fdfdfd' stroke='%239a9a9a' stroke-width='4'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1>Damas Jeff</h1>
+    <button id="btn-sound" class="icon-btn" aria-label="Som ligado" title="Som">🔊</button>
+  </header>
+
+  <main class="layout">
+    <section class="board-area">
+      <div id="board" class="board" role="grid" aria-label="Tabuleiro"></div>
+      <p id="status" class="status" aria-live="polite"></p>
+    </section>
+
+    <aside class="side">
+      <dl class="info">
+        <div><dt>Modo</dt><dd id="i-mode"></dd></div>
+        <div><dt>Adversário</dt><dd id="i-opp"></dd></div>
+        <div><dt>Regra</dt><dd id="i-rule"></dd></div>
+        <div><dt>Tempo</dt><dd id="i-time">00:00</dd></div>
+        <div><dt>Brancas</dt><dd id="i-white"></dd></div>
+        <div><dt>Pretas</dt><dd id="i-black"></dd></div>
+      </dl>
+
+      <div id="play-box" class="buttons">
+        <button id="btn-new" class="primary">Novo jogo</button>
+        <button id="btn-invite" class="whats">Jogar com amigo (link)</button>
+        <div class="nav">
+          <button id="btn-back">◀ Voltar</button>
+          <button id="btn-fwd">Avançar ▶</button>
+        </div>
+        <div class="grid2">
+          <button id="btn-save">Salvar</button>
+          <button id="btn-open">Abrir</button>
+          <button id="btn-edit">Editar tabuleiro</button>
+          <button id="btn-records">Records</button>
+        </div>
+        <div id="online-box" class="grid2" hidden>
+          <button id="btn-rematch">Revanche</button>
+          <button id="btn-resign">Desistir</button>
+          <button id="btn-share" class="whats wide">Reenviar convite</button>
+        </div>
+        <button id="btn-rules" class="link">Regras</button>
+      </div>
+
+      <div id="edit-box" class="buttons" hidden>
+        <p class="hint">Toque numa casa para colocar a peça escolhida. Toque de novo com a mesma peça para apagar.</p>
+        <div class="palette" role="radiogroup" aria-label="Peça">
+          <label><input type="radio" name="piece" value="1" checked><span class="mini w"></span>Peça</label>
+          <label><input type="radio" name="piece" value="2"><span class="mini w k"></span>Dama</label>
+          <label><input type="radio" name="piece" value="-1"><span class="mini b"></span>Peça</label>
+          <label><input type="radio" name="piece" value="-2"><span class="mini b k"></span>Dama</label>
+        </div>
+        <label class="row">Quem joga primeiro:
+          <select id="edit-turn"><option value="1">Brancas</option><option value="-1">Pretas</option></select>
+        </label>
+        <div class="grid2">
+          <button id="edit-clear">Esvaziar</button>
+          <button id="edit-reset">Posição inicial</button>
+          <button id="edit-done" class="primary">Concluído</button>
+          <button id="edit-cancel">Cancelar</button>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <!-- Novo jogo -->
+  <dialog id="dlg-new">
+    <form method="dialog">
+      <h2>Novo jogo</h2>
+      <fieldset>
+        <legend>Tipo de jogo</legend>
+        <label><input type="radio" name="mode" value="cpu" checked> Contra o computador</label>
+        <label><input type="radio" name="mode" value="tournament"> Torneio contra o computador</label>
+        <label><input type="radio" name="mode" value="pvp"> Dois jogadores (mesmo aparelho)</label>
+        <label><input type="radio" name="mode" value="online"> Com um amigo pelo link (WhatsApp)</label>
+      </fieldset>
+      <fieldset id="f-cpu">
+        <legend>Opções</legend>
+        <label class="row" id="row-level">Nível:
+          <select name="level">
+            <option>Iniciante</option><option>Amador</option><option selected>Intermediário</option>
+            <option>Experiente</option><option>Profissional</option>
+          </select>
+        </label>
+        <label class="row" id="row-color">Você joga com:
+          <select name="color"><option value="1">Brancas</option><option value="-1">Pretas</option></select>
+        </label>
+      </fieldset>
+      <label class="check"><input type="checkbox" name="back" checked>
+        Peça simples pode iniciar captura para trás (regra oficial)</label>
+      <menu>
+        <button value="cancel" formnovalidate>Cancelar</button>
+        <button value="ok" class="primary">Iniciar</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <!-- Convite online -->
+  <dialog id="dlg-invite">
+    <form method="dialog">
+      <h2>Convide seu amigo</h2>
+      <p id="invite-state">Criando a partida…</p>
+      <div id="invite-ready" hidden>
+        <p>Envie este link. Quando ele abrir, a partida começa sozinha.</p>
+        <input id="invite-link" readonly>
+        <div class="grid2">
+          <a id="invite-whats" class="btn whats" target="_blank" rel="noopener">Enviar no WhatsApp</a>
+          <button type="button" id="invite-copy">Copiar link</button>
+        </div>
+        <button type="button" id="invite-native" class="wide" hidden>Compartilhar…</button>
+        <p class="hint">Deixe esta página aberta enquanto espera. Se a conexão falhar no 4G, tentem pelo Wi-Fi.</p>
+      </div>
+      <menu><button value="close">Fechar</button></menu>
+    </form>
+  </dialog>
+
+  <!-- Lista: salvar / abrir -->
+  <dialog id="dlg-slots">
+    <form method="dialog">
+      <h2 id="slots-title">Salvar jogo</h2>
+      <ol id="slots-list" class="slots"></ol>
+      <menu><button value="cancel">Cancelar</button></menu>
+    </form>
+  </dialog>
+
+  <!-- Records -->
+  <dialog id="dlg-records">
+    <form method="dialog">
+      <h2>Records</h2>
+      <label class="row">Nível:
+        <select id="records-level">
+          <option>Iniciante</option><option>Amador</option><option>Intermediário</option>
+          <option>Experiente</option><option>Profissional</option>
+        </select>
+      </label>
+      <table class="records"><thead><tr><th>#</th><th>Nome</th><th>Tempo</th><th>Data</th></tr></thead>
+        <tbody id="records-body"></tbody></table>
+      <menu><button value="close">Fechar</button></menu>
+    </form>
+  </dialog>
+
+  <!-- Mensagem genérica (alerta, confirmação, pergunta) -->
+  <dialog id="dlg-msg">
+    <form method="dialog">
+      <h2 id="msg-title"></h2>
+      <p id="msg-text"></p>
+      <input id="msg-input" hidden maxlength="40">
+      <menu id="msg-buttons"></menu>
+    </form>
+  </dialog>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js"></script>
+  <script src="engine.js"></script>
+  <script src="ai.js"></script>
+  <script src="net.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
