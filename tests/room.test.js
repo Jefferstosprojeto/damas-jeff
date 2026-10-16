@@ -207,6 +207,77 @@ const tests = {
     assert.strictEqual(e.host().you, "H");
     assert.deepStrictEqual(e.host().members.map(m => m.name), ["Jeff", "Ana"]);
   },
+
+  "anfitrião sai de propósito: perde a partida e some da sala para os outros"() {
+    const e = makeRoom();
+    e.join("c1", "A", "Ana");
+    e.join("c2", "B", "Bia");
+    e.room.hostLeave();
+    const st = e.last("c1");
+    assert.strictEqual(st.phase, "over");
+    assert.strictEqual(st.game.result, BLACK); // Jeff (Brancas) saiu: Ana vence
+    assert.match(st.game.reason, /Jeff saiu/);
+    assert.ok(!st.members.some(m => m.id === "H"));
+    assert.strictEqual(st.seats.white, null);
+    assert.deepStrictEqual(st.queue, ["B"]);
+  },
+
+  "outro assume a sala no meio da partida e ela continua do mesmo ponto"() {
+    // Sala original: Jeff (H) × Ana (A), Bia (B) na fila; dois lances jogados.
+    const e = makeRoom();
+    e.join("c1", "A", "Ana");
+    e.join("c2", "B", "Bia");
+    e.room.hostMove(e.room.game.board.legalMoves()[0].path);
+    e.room.move("c1", { path: e.room.game.board.legalMoves()[0].path, n: 1 });
+    const snap = e.last("c2"); // último estado que a Bia recebeu
+
+    // Jeff some; a Bia segura a sala e retoma a partir do que tinha.
+    const clock = fakeClock();
+    const sent = new Map();
+    const room = Room.restore(snap, Object.assign({
+      hostId: "B", hostName: "Bia", backCapture: true,
+      send: (conn, msg) => { if (!sent.has(conn)) sent.set(conn, []); sent.get(conn).push(msg); },
+      close: () => {}, onChange: () => {},
+    }, clock));
+    assert.strictEqual(room.phase, "playing");
+    assert.deepStrictEqual(room.seats, { white: "H", black: "A" });
+    assert.deepStrictEqual(room.queue, ["B"]);
+    assert.strictEqual(room.game.moves.length, 2);
+    assert.ok(!room.members.get("A").connected);
+
+    // Ana volta com a chave dela e retoma o lugar; o lance seguinte vale.
+    room.join("a2", { v: PROTOCOL, id: "A", secret: "s-A", name: "Ana" });
+    assert.ok(room.members.get("A").connected);
+    // Depois disso, outra chave para o mesmo id é recusada.
+    room.join("x", { v: PROTOCOL, id: "A", secret: "outra", name: "Intrusa" });
+    assert.strictEqual(sent.get("x").slice(-1)[0].t, "denied");
+
+    // Jeff não volta em 60 s: perde, e a Bia (fila) entra contra a Ana.
+    clock.advance(RECONNECT_MS);
+    assert.strictEqual(room.phase, "over");
+    assert.strictEqual(room.game.result, BLACK);
+    clock.advance(NEXT_GAME_MS);
+    assert.strictEqual(room.phase, "playing");
+    assert.deepStrictEqual(room.seats, { white: "B", black: "A" });
+  },
+
+  "retomar sala vazia: quem assume entra na fila e senta quando alguém chega"() {
+    const e = makeRoom();
+    e.join("c1", "A", "Ana");
+    e.room.hostLeave(); // Ana fica sozinha com o estado
+    const snap = e.last("c1");
+    const clock = fakeClock();
+    const room = Room.restore(snap, Object.assign({
+      hostId: "A", hostName: "Ana", backCapture: true,
+      send: () => {}, close: () => {}, onChange: () => {},
+    }, clock));
+    clock.advance(NEXT_GAME_MS);
+    assert.strictEqual(room.phase, "waiting");
+    room.join("c9", { v: PROTOCOL, id: "Z", secret: "s-Z", name: "Zé" });
+    assert.strictEqual(room.phase, "playing");
+    assert.ok([room.seats.white, room.seats.black].includes("A"));
+    assert.ok([room.seats.white, room.seats.black].includes("Z"));
+  },
 };
 
 let failed = 0;

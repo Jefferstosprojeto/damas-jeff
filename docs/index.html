@@ -56,7 +56,8 @@
           <div class="grid2">
             <button id="btn-resign">Desistir</button>
             <button id="btn-rename">Trocar meu nome</button>
-            <button id="btn-share" class="whats wide">Convidar mais gente</button>
+            <button id="btn-share" class="whats">Convidar</button>
+            <button id="btn-leave">Sair da sala</button>
           </div>
         </section>
         <button id="btn-rules" class="link">Regras</button>
@@ -92,7 +93,7 @@
         <label><input type="radio" name="mode" value="cpu" checked> Contra o computador</label>
         <label><input type="radio" name="mode" value="tournament"> Torneio contra o computador</label>
         <label><input type="radio" name="mode" value="pvp"> Dois jogadores (mesmo aparelho)</label>
-        <label><input type="radio" name="mode" value="online"> Sala online pelo link (WhatsApp) — com fila</label>
+        <label><input type="radio" name="mode" value="online"> Sala online (link fixo, com fila)</label>
       </fieldset>
       <fieldset id="f-cpu">
         <legend>Opções</legend>
@@ -118,17 +119,16 @@
   <!-- Convite online -->
   <dialog id="dlg-invite">
     <form method="dialog">
-      <h2>Convide para a sala</h2>
-      <p id="invite-state">Criando a sala…</p>
-      <div id="invite-ready" hidden>
-        <p>Envie este link para uma ou várias pessoas. O primeiro a abrir joga com você; os demais entram na fila e assistem. Quem ganha fica.</p>
+      <h2>Link da sala</h2>
+      <div id="invite-ready">
+        <p>A sala é uma só e o link é sempre este — mande uma vez e salve no grupo. Quem abrir entra na fila: dois jogam, os outros assistem, e quem ganha fica.</p>
         <input id="invite-link" readonly>
         <div class="grid2">
           <a id="invite-whats" class="btn whats" target="_blank" rel="noopener">Enviar no WhatsApp</a>
           <button type="button" id="invite-copy">Copiar link</button>
         </div>
         <button type="button" id="invite-native" class="wide" hidden>Compartilhar…</button>
-        <p class="hint">Deixe esta página aberta enquanto espera. Se a conexão falhar no 4G, tentem pelo Wi-Fi.</p>
+        <p class="hint">A sala fica aberta enquanto houver alguém com o jogo aberto nela. Abra o jogo numa aba só. Se a conexão falhar no 4G, tentem pelo Wi-Fi.</p>
       </div>
       <menu><button value="close">Fechar</button></menu>
     </form>

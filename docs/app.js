@@ -50,9 +50,9 @@
     tournament: null, tournamentBack: true,
     elapsed: 0, clockStart: null,
     editing: false, editBoard: null,
-    net: null, netConnected: false, netWaiting: false,
+    net: null, netConnected: false,
     room: null, roomState: null, seatColor: null, gameNo: 0, endText: "", nextAtLocal: null,
-    joinCode: null, denied: false,
+    searchText: "", myName: "",
     flashUntil: 0, sound: store.get("sound", true),
     lastCfg: store.get("lastCfg", { mode: "cpu", level: AI.DEFAULT_LEVEL, color: WHITE, back: true }),
   };
@@ -212,7 +212,7 @@
     const online = S.mode === "online";
     const playingOnline = online && S.roomState && S.roomState.phase === "playing";
     $("btn-resign").disabled = !(playingOnline && S.seatColor !== null && S.net);
-    $("btn-share").hidden = !(online && S.net && S.net.isHost);
+    $("btn-share").hidden = !(online && S.net);
     renderRoom();
 
     if (performance.now() < S.flashUntil) return;
@@ -630,7 +630,6 @@
     S.roomState = null;
     S.seatColor = null;
     S.netConnected = false;
-    S.netWaiting = false;
   }
 
   async function askName(force = false) {
@@ -643,37 +642,110 @@
     return clean;
   }
 
-  // ------------------------------------------------------------ anfitrião
-  async function hostOnline(cfg) {
+  // Abas do mesmo navegador: a última que entra na sala assume; as outras saem.
+  const tabId = DamasNet.randomCode();
+  const tabs = "BroadcastChannel" in window ? new BroadcastChannel("damasjeff") : null;
+  if (tabs) {
+    tabs.onmessage = e => {
+      if (!e.data || e.data.t !== "takeover" || e.data.tab === tabId || !S.net) return;
+      closeNet();
+      S.gameOver = true;
+      S.clockStart = null;
+      render();
+      alertBox("Sala online", "A sala foi aberta em outra aba ou janela deste navegador. Continue por lá — ou toque em \"Sala online\" para voltar a jogar aqui.");
+    };
+  }
+
+  // ------------------------------------------------------------ entrar na sala
+  // Há uma sala só, sempre no mesmo link. Quem chega primeiro a "segura"
+  // (sem perceber); se essa pessoa sair, outra assume e a sala continua.
+  async function enterRoom(showInvite) {
     closeNet();
     S.tournament = null;
-    S.joinCode = null;
-    const name = await askName(true);
-    const net = new DamasNet.NetSession({
-      onReady: () => { S.netWaiting = true; fillInvite(); updateInfo(); },
-      onPeerOpen: () => {},
+    S.endText = "";
+    startGame(Board.initial(), "online", WHITE);
+    S.gameOver = true;
+    S.clockStart = null;
+    if (location.hash !== "#sala") history.replaceState(null, "", location.pathname + location.search + "#sala");
+    S.myName = await askName();
+    if (tabs) tabs.postMessage({ t: "takeover", tab: tabId });
+    const net = new DamasNet.RoomLink({
+      onHost: () => becomeHost(net),
+      onHostLost: () => {
+        if (S.room) S.room.close();
+        S.room = null;
+        S.netConnected = false;
+        updateInfo();
+      },
       onPeerData: (conn, msg) => roomMessage(conn, msg),
       onPeerClose: conn => S.room && S.room.disconnected(conn),
-      onError: text => {
-        if ($("dlg-invite").open) $("dlg-invite").close();
-        closeNet();
+      onConnected: () => {
+        S.netConnected = true;
+        S.searchText = "Entrando na sala…";
+        net.send({ t: "join", v: DamasRoom.PROTOCOL, id: me.id, secret: me.secret, name: S.myName });
         updateInfo();
-        alertBox("Partida online", text);
+      },
+      onMessage: msg => {
+        if (msg.t === "state") applyRoomState(msg);
+        else if (msg.t === "denied") {
+          closeNet();
+          S.gameOver = true;
+          render();
+          alertBox("Sala online", msg.reason);
+        }
+      },
+      onDisconnected: () => {
+        S.netConnected = false;
+        S.searchText = "A conexão com a sala caiu. Reconectando…";
+        S.clockStart = null;
+        resetSelection();
+        render();
+      },
+      onSearching: (type, failures) => {
+        S.netConnected = false;
+        S.searchText = searchingText(type, failures);
+        updateInfo();
+      },
+      onFatal: text => {
+        closeNet();
+        render();
+        alertBox("Sala online", text);
       },
     });
     S.net = net;
-    S.netConnected = true; // o anfitrião é a própria sala
-    S.room = new DamasRoom.Room({
-      hostId: me.id, hostName: name, hostColor: cfg.color, backCapture: cfg.back,
+    S.searchText = "Procurando a sala…";
+    // Dá tempo de outra aba deste navegador soltar a sala antes de tentar.
+    setTimeout(() => { if (S.net === net) net.start(); }, tabs ? 400 : 0);
+    render();
+    if (showInvite) {
+      fillInvite();
+      openDialog("dlg-invite");
+    }
+  }
+
+  function searchingText(type, failures) {
+    if (type === "network" || type === "server-error" || type === "socket-error" || type === "socket-closed") {
+      return "Sem conexão com o servidor. Tentando de novo…";
+    }
+    if (type === "webrtc" && failures >= 2) {
+      return "Não está conseguindo ligar com a sala. No 4G isso pode acontecer — tente pelo Wi-Fi. Tentando de novo…";
+    }
+    return "Procurando a sala…";
+  }
+
+  function becomeHost(net) {
+    const snap = store.get("roomSnap", null);
+    const fresh = snap && snap.st && snap.st.v === DamasRoom.PROTOCOL && snap.st.you === me.id
+      && Date.now() - snap.at < DamasRoom.RECONNECT_MS;
+    const opts = {
+      hostId: me.id, hostName: S.myName, backCapture: true,
       send: (conn, msg) => net.sendTo(conn, msg),
       close: conn => net.closeConn(conn),
       onChange: applyRoomState,
-    });
+    };
+    S.room = fresh ? DamasRoom.Room.restore(snap.st, opts) : new DamasRoom.Room(opts);
+    S.netConnected = true;
     applyRoomState(S.room.stateFor(me.id));
-    net.host();
-    $("invite-state").textContent = "Criando a sala…";
-    $("invite-ready").hidden = true;
-    openDialog("dlg-invite");
   }
 
   function roomMessage(conn, msg) {
@@ -687,11 +759,8 @@
   }
 
   function fillInvite() {
-    if (!S.net || !S.net.code) return;
-    const url = S.net.inviteUrl();
-    const text = `Bora jogar Damas Jeff? Toque no link para entrar na sala: ${url}`;
-    $("invite-state").textContent = "Sala criada!";
-    $("invite-ready").hidden = false;
+    const url = DamasNet.roomUrl();
+    const text = `Bora jogar Damas Jeff? A sala fica sempre neste link — é só tocar para entrar na fila: ${url}`;
     $("invite-link").value = url;
     $("invite-whats").href = "https://wa.me/?text=" + encodeURIComponent(text);
     const native = $("invite-native");
@@ -699,55 +768,11 @@
     native.onclick = () => navigator.share({ title: "Damas Jeff", text, url }).catch(() => {});
   }
 
-  // ------------------------------------------------------------ convidado
-  async function joinOnline(code) {
-    closeNet();
-    S.tournament = null;
-    S.joinCode = code;
-    S.denied = false;
-    startGame(Board.initial(), "online", WHITE);
-    S.gameOver = true;
-    S.clockStart = null;
-    const name = await askName();
-    const net = new DamasNet.NetSession({
-      onConnected: () => {
-        S.netConnected = true;
-        net.send({ t: "join", v: DamasRoom.PROTOCOL, id: me.id, secret: me.secret, name });
-        flash("Conectado! Entrando na sala…");
-      },
-      onMessage: msg => {
-        if (msg.t === "state") applyRoomState(msg);
-        else if (msg.t === "denied") {
-          S.denied = true;
-          closeNet();
-          updateInfo();
-          alertBox("Partida online", msg.reason);
-        }
-      },
-      onDisconnected: () => { if (!S.denied) offerReconnect("A conexão com a sala caiu."); },
-      onError: text => { if (!S.denied) offerReconnect(text); },
-    });
-    S.net = net;
-    net.join(code);
-    flash("Conectando à sala…", 25000);
-  }
-
-  async function offerReconnect(text) {
-    const code = S.joinCode;
-    closeNet();
-    S.gameOver = true;
-    S.clockStart = null;
-    updateInfo();
-    if (!code) return alertBox("Partida online", text);
-    if (await confirmBox("Partida online", text + "\n\nTentar conectar de novo?", "Reconectar", "Agora não")) {
-      joinOnline(code);
-    }
-  }
-
   // ------------------------------------------------------------ estado da sala
   function applyRoomState(st) {
     const prev = S.roomState;
     S.roomState = st;
+    store.set("roomSnap", { at: Date.now(), st }); // para retomar a sala se for preciso assumir
     S.nextAtLocal = st.nextIn === null ? null : performance.now() + st.nextIn;
     const myColor = st.seats.white === st.you ? WHITE : st.seats.black === st.you ? BLACK : null;
     S.seatColor = myColor;
@@ -823,8 +848,8 @@
     }
     // Começo de partida
     if (g && st.phase === "playing" && !(pg && pg.no === g.no)) {
-      // Primeira partida da sala: o convite aberto automaticamente já cumpriu seu papel.
-      if (S.room && g.no === 1 && $("dlg-invite").open) $("dlg-invite").close();
+      // Começou a sua partida: o convite já cumpriu seu papel.
+      if (S.seatColor !== null && $("dlg-invite").open) $("dlg-invite").close();
       const table = `${nameOf(st.seats.white)} (Brancas) × ${nameOf(st.seats.black)} (Pretas)`;
       let text = `Nova partida: ${table}.`;
       if (S.seatColor !== null) text += ` Você joga com as ${colorName(S.seatColor)}.`;
@@ -864,14 +889,14 @@
 
   function onlineStatus() {
     const st = S.roomState;
-    if (!S.net) return "Sem conexão com a sala — toque em Novo jogo";
-    if (!st) return S.net.isHost ? "Criando a sala…" : "Conectando à sala…";
+    if (!S.net) return "Fora da sala — toque em \"Sala online\" para entrar";
+    if (!S.netConnected || !st) return S.searchText || "Procurando a sala…";
     if (st.phase === "over") {
       const secs = S.nextAtLocal === null ? 0 : Math.max(0, Math.ceil((S.nextAtLocal - performance.now()) / 1000));
       return `${S.endText || "Fim de partida."} Próxima partida em ${secs}s…`;
     }
     if (st.phase === "waiting") {
-      return st.members.length < 2 ? "Aguardando alguém abrir o link…" : "Aguardando mais um jogador…";
+      return st.members.length < 2 ? "Você está na sala — aguardando alguém abrir o link…" : "Aguardando mais um jogador…";
     }
     const turn = board().turn;
     const who = nameOf(turn === WHITE ? st.seats.white : st.seats.black);
@@ -883,12 +908,16 @@
   }
 
   function leaveOnline() {
-    const net = S.net;
-    if (net && !net.isHost) {
-      net.send({ t: "leave" });
-      net.closed = true;              // não avisa "conexão caiu" por esta saída
+    const net = S.net, room = S.room;
+    store.set("roomSnap", null); // saiu de propósito: não retoma esta sala depois
+    if (net) {
+      // Avisa a sala (ou, se este aparelho a segura, entrega para os outros).
+      if (room) room.hostLeave();
+      else net.send({ t: "leave" });
+      net.mute();
       S.net = null;
-      setTimeout(() => { net.closed = false; net.close(); }, 400); // dá tempo do aviso chegar
+      S.room = null;
+      setTimeout(() => net.close(), 400); // dá tempo do aviso chegar
     }
     closeNet();
   }
@@ -896,12 +925,8 @@
   // ============================================================ novo jogo
   async function newGame(presetMode) {
     if (S.editing) leaveEdit();
-    if (S.mode === "online" && S.net) {
-      const others = S.roomState ? S.roomState.members.length - 1 : 0;
-      const ask = S.net.isHost
-        ? (others > 0 ? `Sair fecha a sala para todos (${others} pessoa${others > 1 ? "s" : ""}). Continuar?` : null)
-        : (S.seatColor !== null && !S.gameOver ? "Sair agora conta como derrota. Continuar?" : null);
-      if (ask && !(await confirmBox("Novo jogo", ask))) return;
+    if (S.mode === "online" && S.net && S.seatColor !== null && !S.gameOver) {
+      if (!(await confirmBox("Novo jogo", "Sair da sala agora conta como derrota nesta partida. Continuar?"))) return;
     }
     const form = $("dlg-new").querySelector("form");
     const cfg = Object.assign({}, S.lastCfg, presetMode ? { mode: presetMode } : {});
@@ -926,19 +951,23 @@
       S.tournament = { round: 0 };
       S.tournamentBack = chosen.back;
       startTournamentRound();
-    } else hostOnline(chosen);
+    } else enterRoom(true);
   }
 
   function syncNewForm() {
     const form = $("dlg-new").querySelector("form");
     const mode = form.mode.value;
-    $("f-cpu").disabled = !(mode === "cpu" || mode === "online");
+    $("f-cpu").disabled = mode !== "cpu";
     $("row-level").style.display = mode === "online" ? "none" : "";
   }
 
   // ============================================================ eventos
   $("btn-new").onclick = () => newGame();
-  $("btn-invite").onclick = () => newGame("online");
+  $("btn-invite").onclick = () => {
+    if (S.mode === "online" && S.net) { fillInvite(); openDialog("dlg-invite"); return; }
+    if (S.editing) leaveEdit();
+    enterRoom(true);
+  };
   $("btn-back").onclick = goBack;
   $("btn-fwd").onclick = goForward;
   $("btn-save").onclick = saveGame;
@@ -947,6 +976,14 @@
   $("btn-records").onclick = () => showRecords();
   $("btn-rules").onclick = () => alertBox("Regras", RULES);
   $("btn-share").onclick = () => { fillInvite(); openDialog("dlg-invite"); };
+  $("btn-leave").onclick = async () => {
+    if (S.seatColor !== null && !S.gameOver
+      && !(await confirmBox("Sair da sala", "Sair agora conta como derrota nesta partida. Continuar?"))) return;
+    leaveOnline();
+    if (location.hash) history.replaceState(null, "", location.pathname + location.search);
+    S.gameOver = true;
+    render();
+  };
   $("btn-resign").onclick = async () => {
     if (!(await confirmBox("Desistir", "Desistir desta partida?"))) return;
     if (S.room) S.room.hostResign();
@@ -954,6 +991,7 @@
   };
   $("btn-rename").onclick = async () => {
     const name = await askName(true);
+    S.myName = name;
     if (S.room) S.room.hostRename(name);
     else if (S.net) S.net.send({ t: "rename", name });
   };
@@ -990,10 +1028,12 @@
     if (e.ctrlKey && e.key.toLowerCase() === "y") { e.preventDefault(); goForward(); }
   });
   window.addEventListener("beforeunload", e => {
-    const hostWithGuests = S.room && S.roomState && S.roomState.members.length > 1;
     const playing = S.mode === "online" && S.seatColor !== null && !S.gameOver;
-    if (hostWithGuests || playing) { e.preventDefault(); e.returnValue = ""; }
+    if (playing) { e.preventDefault(); e.returnValue = ""; }
   });
+  // Ao fechar ou recarregar, solta a sala na hora para outro assumir
+  // (quem recarrega volta ao mesmo lugar em até 60 s).
+  window.addEventListener("pagehide", () => { if (S.net) S.net.close(); });
   setInterval(() => {
     if (S.clockStart !== null) $("i-time").textContent = formatTime(gameSeconds());
     // Contagem regressiva para a próxima partida da sala.
@@ -1011,18 +1051,14 @@
 Como jogar: toque numa peça e depois na casa de destino (os pontos verdes mostram as opções). Em capturas múltiplas, toque nas casas de pouso uma a uma.`;
 
   // ============================================================ início
-  function codeFromHash() {
-    const m = /jogo=([a-z0-9]{6})/i.exec(location.hash);
-    return m ? m[1].toLowerCase() : null;
-  }
+  // Links antigos (#jogo=código) também levam à sala fixa.
+  const wantsRoom = () => /^#(sala|jogo=)/i.test(location.hash);
   window.addEventListener("hashchange", () => {
-    const code = codeFromHash();
-    if (code && code !== S.joinCode) joinOnline(code);
+    if (wantsRoom() && !(S.mode === "online" && S.net)) enterRoom(false);
   });
 
   render();
-  const code = codeFromHash();
-  if (code) joinOnline(code);
+  if (wantsRoom()) enterRoom(false);
   else newGame();
 
   // Ganchos para testes automatizados.

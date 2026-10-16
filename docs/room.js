@@ -1,8 +1,10 @@
 /* Damas Jeff — sala online com fila ("quem ganha fica").
  *
- * Roda no navegador de quem criou a sala (o anfitrião), que é a autoridade:
- * valida os lances, controla mesa, fila e reconexões, e envia o estado
- * completo a todos após cada mudança. Não depende da tela (testável no Node).
+ * Roda no navegador de quem está segurando a sala (o anfitrião), que é a
+ * autoridade: valida os lances, controla mesa, fila e reconexões, e envia o
+ * estado completo a todos após cada mudança. Se o anfitrião sair, outro
+ * participante assume e retoma a sala a partir do último estado recebido
+ * (Room.restore). Não depende da tela (testável no Node).
  */
 (function (root) {
   "use strict";
@@ -16,7 +18,7 @@
 
   class Room {
     /**
-     * opts: hostId, hostName, hostColor, backCapture,
+     * opts: hostId, hostName, hostColor, backCapture, seatHost (padrão true),
      *       send(conn, msg), close(conn), onChange(stateDoHost),
      *       now(), setTimer(fn, ms), clearTimer(handle)  (injetáveis nos testes)
      */
@@ -41,7 +43,51 @@
         id: opts.hostId, name: cleanName(opts.hostName), secret: null,
         conn: "local", connected: true, timer: null, since: this.o.now(),
       });
-      this._seat(opts.hostColor === BLACK ? "black" : "white", opts.hostId);
+      if (opts.seatHost !== false) this._seat(opts.hostColor === BLACK ? "black" : "white", opts.hostId);
+    }
+
+    /** Retoma a sala a partir do último estado que este aparelho recebeu.
+     *  Os demais ficam como "caíram" e têm o prazo normal para voltar; a chave
+     *  de cada um é aceita na primeira reconexão (o estado não carrega chaves). */
+    static restore(snap, opts) {
+      const room = new Room(Object.assign({}, opts, { backCapture: snap.backCapture, seatHost: false }));
+      const now = room.o.now();
+      for (const m of snap.members) {
+        if (m.id === room.hostId) continue;
+        const member = { id: m.id, name: cleanName(m.name), secret: null, conn: null, connected: false, timer: null, since: now };
+        room.members.set(m.id, member);
+        room._startGrace(member);
+      }
+      const known = id => (id && room.members.has(id) ? id : null);
+      room._seat("white", known(snap.seats.white));
+      room._seat("black", known(snap.seats.black));
+      const seated = [room.seats.white, room.seats.black];
+      room.queue = snap.queue.filter(id => known(id) && !seated.includes(id));
+      if (!seated.includes(room.hostId) && !room.queue.includes(room.hostId)) room.queue.push(room.hostId);
+
+      const g = snap.game;
+      if (g) {
+        try {
+          const initial = Board.fromJSON(g.initial);
+          let board = initial;
+          const moves = [];
+          for (const path of g.moves) {
+            const move = board.findMove(path);
+            if (!move) throw new Error("lance inválido");
+            moves.push(move);
+            board = board.apply(move);
+          }
+          room.gameNo = g.no;
+          room.game = { no: g.no, initial, moves, board, result: g.result, reason: g.reason };
+        } catch (e) {
+          room.game = null;
+        }
+      }
+      const both = room.seats.white && room.seats.black;
+      if (snap.phase === "playing" && room.game && room.game.result === null && both) room.phase = "playing";
+      else if (snap.phase === "over" && room.game && room.game.result !== null) room._end(room.game.result, room.game.reason);
+      else { room.phase = "waiting"; room._fillSeats(); }
+      return room;
     }
 
     // ------------------------------------------------------------ entradas
@@ -57,6 +103,7 @@
       }
       const known = this.members.get(id);
       if (known) {
+        if (known.secret === null) known.secret = secret; // sala retomada: primeira volta
         if (known.secret !== secret) {
           // Mesmo id com outra chave: não é a mesma pessoa.
           this.o.send(conn, { t: "denied", reason: "Esse jogador já está na sala." });
@@ -114,12 +161,37 @@
       if (!m) return;
       m.conn = null;
       m.connected = false;
+      this._startGrace(m);
+      this._broadcast();
+    }
+
+    /** O anfitrião sai de vez: avisa todos (sem ele na sala) antes de desligar.
+     *  Se estava jogando, perde a partida. Outro participante assume a sala. */
+    hostLeave() {
+      const id = this.hostId, m = this.members.get(id);
+      const color = this._colorOf(id);
+      if (color !== null && this.phase === "playing") {
+        this.game.result = -color;
+        this.game.reason = `${m.name} saiu da sala`;
+        this.phase = "over";
+        this.nextAt = this.o.now() + NEXT_GAME_MS;
+      }
+      this.members.delete(id);
+      this.queue = this.queue.filter(q => q !== id);
+      if (this.seats.white === id) this.seats.white = null;
+      if (this.seats.black === id) this.seats.black = null;
+      this.close();
+      for (const x of this.members.values()) {
+        if (x.conn && x.connected) this.o.send(x.conn, this.stateFor(x.id));
+      }
+    }
+
+    _startGrace(m) {
       if (m.timer) this.o.clearTimer(m.timer);
       m.timer = this.o.setTimer(() => {
         m.timer = null;
         if (!m.connected) this._remove(m.id, `${m.name} não voltou`);
       }, RECONNECT_MS);
-      this._broadcast();
     }
 
     close() {
@@ -225,7 +297,7 @@
     }
 
     _seat(color, id) {
-      this.seats[color] = id;
+      this.seats[color] = id || null;
       this.seatedAt[color] = this.o.now();
     }
 
